@@ -49,8 +49,7 @@ pip install hmmlearn scikit-learn pandas numpy matplotlib seaborn requests plotl
 - [hmmlearn](https://hmmlearn.readthedocs.io/en/latest/) for Hidden Markov Models
 - [scikit-learn](https://scikit-learn.org/stable/) for scaling and metrics
 - [pandas](https://pandas.pydata.org/) and [numpy](https://numpy.org/) for data manipulation
-  and [seaborn](https://seaborn.pydata.org/) for plotting
-- [matplotlib](https://matplotlib.org/) [plotly](https://plotly.com/) 
+-  [matplotlib](https://matplotlib.org/)  [seaborn](https://seaborn.pydata.org/) and  [plotly](https://plotly.com/) for plotting                              
 - [requests](https://docs.python-requests.org/en/latest/) for HTTP requests if needed
 
 ---
