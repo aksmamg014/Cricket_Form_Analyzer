@@ -18,7 +18,8 @@ This project implements a complete machine learning pipeline to analyze cricket 
 ## Installation
 
 Run the following to install required packages:
-pip install hmmlearn scikit-learn pandas numpy matplotlib seaborn requests
+pip install hmmlearn scikit-learn pandas numpy matplotlib seaborn requests plotly
+
 
 
 ---
@@ -48,7 +49,8 @@ pip install hmmlearn scikit-learn pandas numpy matplotlib seaborn requests
 - [hmmlearn](https://hmmlearn.readthedocs.io/en/latest/) for Hidden Markov Models
 - [scikit-learn](https://scikit-learn.org/stable/) for scaling and metrics
 - [pandas](https://pandas.pydata.org/) and [numpy](https://numpy.org/) for data manipulation
-- [matplotlib](https://matplotlib.org/) and [seaborn](https://seaborn.pydata.org/) for plotting
+  and [seaborn](https://seaborn.pydata.org/) for plotting
+- [matplotlib](https://matplotlib.org/) [plotly](https://plotly.com/) 
 - [requests](https://docs.python-requests.org/en/latest/) for HTTP requests if needed
 
 ---
