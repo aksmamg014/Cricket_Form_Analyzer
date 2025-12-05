@@ -5,7 +5,6 @@ import os
 import requests
 import zipfile
 import io
-from datetime import datetime
 
 # ==========================================
 # CONFIGURATION
@@ -13,19 +12,46 @@ from datetime import datetime
 st.set_page_config(page_title="Cricket Score Predictor", page_icon="🏏", layout="wide")
 
 # Placeholder for your GitHub Raw URL (User must update this)
-# Example: "https://github.com/yourusername/your-repo/raw/main/data/cricket_data.zip"
 GITHUB_ZIP_URL = "https://github.com/YOUR_USER/YOUR_REPO/raw/main/data/data.zip"
 
-# Path to the model directory created in your previous step
+# Directory where we want the model files
 MODEL_DIR = "models/rf_cricket_score"
+# Name of the zip file you pushed to GitHub
+MODEL_ZIP_FILE = "model.zip" 
 
 # ==========================================
-# CACHED FUNCTIONS
+# SETUP & CACHED FUNCTIONS
 # ==========================================
+
+@st.cache_resource
+def setup_model_files():
+    """
+    Checks if model files exist. If not, tries to unzip 'model.zip'.
+    Returns True if successful, False otherwise.
+    """
+    # Check if directory exists and has files
+    if os.path.exists(MODEL_DIR) and os.listdir(MODEL_DIR):
+        return True
+        
+    # If not, try to unzip
+    if os.path.exists(MODEL_ZIP_FILE):
+        try:
+            with zipfile.ZipFile(MODEL_ZIP_FILE, 'r') as zip_ref:
+                zip_ref.extractall(".") # Extracts to current directory, preserving paths
+            return True
+        except Exception as e:
+            st.error(f"Failed to unzip model file: {e}")
+            return False
+    return False
 
 @st.cache_resource
 def load_latest_model(model_dir):
     """Loads the latest .joblib model from the directory."""
+    
+    # Ensure files are ready
+    if not setup_model_files():
+        return None, None, None
+
     if not os.path.exists(model_dir):
         return None, None, None
 
@@ -40,18 +66,16 @@ def load_latest_model(model_dir):
     
     try:
         payload = joblib.load(model_path)
-        # Handle both dictionary format (from your code) and raw model
         if isinstance(payload, dict) and 'model' in payload:
             return payload['model'], payload.get('feature_names'), payload.get('metadata')
         else:
-            return payload, None, {} # Fallback if raw model
+            return payload, None, {}
     except Exception as e:
         st.error(f"Error loading model: {e}")
         return None, None, None
 
 @st.cache_resource
 def load_feature_names(model_dir):
-    """Loads feature names separately if they exist."""
     path = os.path.join(model_dir, "feature_names.joblib")
     if os.path.exists(path):
         return joblib.load(path)
@@ -59,14 +83,11 @@ def load_feature_names(model_dir):
 
 @st.cache_data
 def download_and_extract_github_data(url):
-    """Downloads zip from GitHub and extracts to a temp folder."""
-    if "YOUR_USER" in url: # Check if placeholder is still there
+    if "YOUR_USER" in url: 
         return None
-        
     try:
         response = requests.get(url)
         response.raise_for_status()
-        
         z = zipfile.ZipFile(io.BytesIO(response.content))
         extract_path = "temp_data"
         z.extractall(extract_path)
@@ -89,8 +110,8 @@ with st.sidebar:
     # Dynamic Model Loader
     model, meta_features, metadata = load_latest_model(MODEL_DIR)
     
-    # Fallback to separate feature file if not in model dict
-    if not meta_features:
+    # Fallback to separate feature file
+    if not meta_features and model:
         meta_features = load_feature_names(MODEL_DIR)
     
     if model:
@@ -99,7 +120,7 @@ with st.sidebar:
             st.caption(f"Trained: {metadata['timestamp']}")
             st.metric("CV MAE", f"{metadata.get('cv_mae_mean', 0):.2f}")
     else:
-        st.error("❌ No model found in directory.")
+        st.error("❌ Model not found. Please check 'model.zip' is in repo.")
     
     st.markdown("---")
     st.subheader("🔗 Data Source")
@@ -109,26 +130,18 @@ with st.sidebar:
         data_path = download_and_extract_github_data(github_url)
         if data_path:
             st.success(f"Data extracted to `{data_path}`")
-        else:
-            st.warning("Please provide a valid GitHub 'Raw' URL.")
 
 # --- Main Prediction Area ---
 
 if model and meta_features:
     st.subheader("🔮 Make a Prediction")
-    
-    # Create a form for inputs
     with st.form("prediction_form"):
         st.markdown("### Input Features")
-        
-        # Dynamically generate input fields based on feature names
-        # We arrange them in columns for better layout
         cols = st.columns(3)
         input_data = {}
         
         for i, feature in enumerate(meta_features):
             with cols[i % 3]:
-                # Heuristic to guess input type based on name
                 if 'runs' in feature.lower() or 'score' in feature.lower():
                     input_data[feature] = st.number_input(feature, min_value=0, value=100)
                 elif 'wickets' in feature.lower():
@@ -136,20 +149,14 @@ if model and meta_features:
                 elif 'overs' in feature.lower():
                     input_data[feature] = st.number_input(feature, min_value=0.0, max_value=50.0, value=10.0)
                 else:
-                    # Default to number input for unknown features (safe for ML models)
                     input_data[feature] = st.number_input(feature, value=0.0)
 
         submit = st.form_submit_button("🚀 Predict Score")
 
     if submit:
-        # Convert inputs to DataFrame
         df_input = pd.DataFrame([input_data])
-        
-        # Predict
         prediction = model.predict(df_input)[0]
-        
         st.markdown("---")
         st.metric(label="Predicted Score", value=f"{prediction:.0f} Runs")
-        
 else:
-    st.info("👋 Please ensure your model is saved in `models/rf_cricket_score` to continue.")
+    st.info("👋 Please upload `model.zip` to your GitHub repo to start.")
