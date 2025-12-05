@@ -214,28 +214,54 @@ else:
             selected_player = st.selectbox("Select Player:", players)
             
             if selected_player:
-                # Show player stats
+                # Show player stats - FIXED
                 p_data = df[df[player_col] == selected_player]
                 col1, col2, col3 = st.columns(3)
                 with col1:
                     st.metric("Matches Played", len(p_data))
-                with col2:
-                    if 'score' in df.columns.lower():
-                        avg_score = p_data['score'].mean()
+                
+                # FIXED: Safe column checking
+                score_col = None
+                for col in df.columns:
+                    if 'score' in col.lower():
+                        score_col = col
+                        break
+                
+                if score_col:
+                    with col2:
+                        avg_score = p_data[score_col].mean()
                         st.metric("Avg Score", f"{avg_score:.1f}")
                 
-                # FIXED PREDICTION BUTTON (see code above)
+                # 2. FIXED PREDICTION BUTTON
                 if st.button(f"🎯 Predict Next Score for {selected_player}", use_container_width=True):
-                    # [Insert the fixed prediction code from above here]
-                    pass  # Replace with full prediction logic
-        else:
-            st.error(f"Could not find a 'player' column. Columns: {list(df.columns)}")
-    else:
-        st.error("Dataframe is empty or failed to load.")
-        
-    # Reset Button
-    if st.button("🔄 Reset System", type="secondary"):
-        st.session_state.clear()
-        st.rerun()
+                    if st.session_state.model:
+                        try:
+                            # Create proper 1x5 feature matrix
+                            if st.session_state.features and len(st.session_state.features) == 5:
+                                feature_data = {
+                                    st.session_state.features[0]: [50.0],
+                                    st.session_state.features[1]: [30.0],
+                                    st.session_state.features[2]: [25.0],
+                                    st.session_state.features[3]: [2.5],
+                                    st.session_state.features[4]: [1.2]
+                                }
+                                input_features = pd.DataFrame(feature_data)
+                                
+                                st.info(f"**Using features:** {list(input_features.columns)}")
+                            else:
+                                input_features = pd.DataFrame([[50.0, 30.0, 25.0, 2.5, 1.2]], 
+                                                            columns=['feature_1', 'feature_2', 'feature_3', 'feature_4', 'feature_5'])
+                                st.warning("⚠️ Using fallback features")
+                            
+                            prediction = st.session_state.model.predict(input_features)[0]
+                            
+                            st.markdown("### 🎯 Prediction Result")
+                            st.metric(label="Predicted Score", value=f"{int(prediction)} Runs")
+                            
+                            # Feature importance if available
+                            if hasattr(st.session_state.model, 'feature_importances_'):
+                                st.markdown("### 📊 Feature Importance")
+                                importance_df = pd.DataFrame({
+                                    '
 
 
