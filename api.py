@@ -17,7 +17,7 @@ GITHUB_ZIP_URL = "https://github.com/YOUR_USER/YOUR_REPO/raw/main/data/data.zip"
 # Directory where we want the model files
 MODEL_DIR = "models/rf_cricket_score"
 # Name of the zip file you pushed to GitHub
-MODEL_ZIP_FILE = "model.zip" 
+MODEL_ZIP_FILE = "t20s.zip" 
 
 # ==========================================
 # SETUP & CACHED FUNCTIONS
@@ -160,3 +160,4 @@ if model and meta_features:
         st.metric(label="Predicted Score", value=f"{prediction:.0f} Runs")
 else:
     st.info("👋 Please upload `model.zip` to your GitHub repo to start.")
+
