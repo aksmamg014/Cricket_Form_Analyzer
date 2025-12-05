@@ -12,7 +12,7 @@ import io
 st.set_page_config(page_title="Cricket Score Predictor", page_icon="🏏", layout="wide")
 
 # Placeholder for your GitHub Raw URL (User must update this)
-GITHUB_ZIP_URL = "https://github.com/YOUR_USER/YOUR_REPO/raw/main/data/data.zip"
+GITHUB_ZIP_URL = "https://github.com/YOUR_USER/YOUR_REPO/raw/main/data/t20s.zip"
 
 # Directory where we want the model files
 MODEL_DIR = "models/rf_cricket_score"
@@ -160,4 +160,5 @@ if model and meta_features:
         st.metric(label="Predicted Score", value=f"{prediction:.0f} Runs")
 else:
     st.info("👋 Please upload `model.zip` to your GitHub repo to start.")
+
 
