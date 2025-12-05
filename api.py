@@ -50,11 +50,8 @@ def download_and_extract(url, target_dir, desc):
 # ==========================================
 
 def initialize_system():
-    """
-    Main setup function. Downloads files, loads model & data into session_state.
-    """
     logs = []
-    
+
     # 1. Download Data
     ok, msg = download_and_extract(DATA_ZIP_URL, DATA_EXTRACT_DIR, "Data")
     logs.append(msg)
@@ -62,7 +59,15 @@ def initialize_system():
         st.session_state.logs = logs
         return
 
-    # try:
+    # 2. Download Model
+    ok, msg = download_and_extract(MODEL_ZIP_URL, MODEL_EXTRACT_DIR, "Model")
+    logs.append(msg)
+    if not ok:
+        st.session_state.logs = logs
+        return
+
+    # 3. Load Model
+    try:
         model_path = recursive_find_file(MODEL_EXTRACT_DIR, ".joblib")
         if not model_path:
             logs.append("❌ No .joblib file found in model zip.")
@@ -74,31 +79,37 @@ def initialize_system():
 
         if isinstance(payload, dict) and 'model' in payload:
             st.session_state.model = payload['model']
-            raw_features = payload.get('feature_names')
-            if raw_features is not None:
-                if hasattr(raw_features, 'tolist'):
-                    st.session_state.features = raw_features.tolist()
-                elif hasattr(raw_features, 'columns'):
-                    st.session_state.features = raw_features.columns.tolist()
-                else:
-                    st.session_state.features = list(raw_features)
+            raw_features = payload.get('feature_names', [])
+            if hasattr(raw_features, 'tolist'):
+                st.session_state.features = raw_features.tolist()
+            elif hasattr(raw_features, 'columns'):
+                st.session_state.features = raw_features.columns.tolist()
             else:
-                st.session_state.features = []
+                st.session_state.features = list(raw_features)
         else:
             st.session_state.model = payload
             st.session_state.features = []
 
         logs.append("✅ Model loaded into memory.")
-
     except Exception as e:
         logs.append(f"❌ Model Load Error: {str(e)}")
         st.session_state.logs = logs
         return
 
-    # 3. Load Data directly from CSV
+    # 4. Load Data
     try:
-        logs.append("📊 Loading data from GitHub CSV...")
-        st.session_state.player_data = pd.read_csv(DATA_CSV_URL)
+        json_path = recursive_find_file(DATA_EXTRACT_DIR, ".json")
+        if not json_path:
+            logs.append("❌ No JSON file found in data zip.")
+            st.session_state.logs = logs
+            return
+
+        logs.append(f"📊 Loading data from: {os.path.basename(json_path)}")
+        try:
+            st.session_state.player_data = pd.read_json(json_path)
+        except ValueError:
+            st.session_state.player_data = pd.read_json(json_path, lines=True)
+
         logs.append(f"✅ Data loaded: {len(st.session_state.player_data)} rows.")
     except Exception as e:
         logs.append(f"❌ Data Load Error: {str(e)}")
@@ -249,5 +260,6 @@ else:
     if st.button("Reset System"):
         st.session_state.clear()
         st.rerun()
+
 
 
