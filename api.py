@@ -183,7 +183,6 @@ if not st.session_state.system_ready:
                 st.write(log)
 
 # --- VIEW 2: MAIN PREDICTION SCREEN ---
-# --- VIEW 2: MAIN PREDICTION SCREEN ---
 else:
     st.success("✅ System Ready! Model expects: career_avg, player_id, prev_runs, roll_avg_3, roll_avg_5")
     
@@ -205,60 +204,85 @@ else:
             st.write(f"**Columns:** {list(df.columns)}")
             st.dataframe(df.head())
         
-        # Player selection
+        # Player selection - TOP 20 by total runs
         player_col = next((c for c in df.columns if c.lower() in ['player', 'batsman', 'player_name']), None)
         selected_player = None
         
         if player_col:
-            players = sorted(df[player_col].unique())[:100]
-            selected_player = st.selectbox("👨‍🦰 Select Player", players)
+            # 🆕 TOP 20 PLAYERS BY TOTAL RUNS
+            score_col = next((c for c in df.columns if 'score' in c.lower() or 'runs' in c.lower()), None)
+            if score_col:
+                top_players = (df.groupby(player_col)[score_col]
+                             .sum()
+                             .sort_values(ascending=False)
+                             .head(20)
+                             .index.tolist())
+                st.info(f"🏆 Showing **TOP 20 players** by total runs ({len(top_players)} players)")
+            else:
+                top_players = sorted(df[player_col].unique())[:20]
+            
+            selected_player = st.selectbox("👨‍🦰 Select Top Player", top_players)
             
             if selected_player:
                 p_data = df[df[player_col] == selected_player].copy()
                 
                 # Player header
                 st.markdown(f"### 📈 {selected_player}'s Stats")
-                col1, col2, col3 = st.columns(3)
+                col1, col2, col3, col4 = st.columns(4)
                 
                 # Find score column
                 score_col = next((c for c in df.columns if 'score' in c.lower() or 'runs' in c.lower()), None)
                 
                 with col1:
                     st.metric("Matches", len(p_data))
-                
                 if score_col:
                     p_scores = p_data[score_col].dropna()
                     with col2:
                         st.metric("Career Avg", f"{p_scores.mean():.1f}" if len(p_scores) > 0 else "N/A")
                     with col3:
                         st.metric("Best Score", f"{int(p_scores.max())}" if len(p_scores) > 0 else "N/A")
+                    with col4:
+                        st.metric("Total Runs", f"{int(p_scores.sum())}")
                 else:
                     with col2:
-                        st.metric("Avg Score", "No score column")
+                        st.metric("Avg Score", "N/A")
                     with col3:
                         st.metric("Best", "N/A")
+                    with col4:
+                        st.metric("Total", "N/A")
                 
-                # 🎯 PREDICTION BUTTON
+                # 🎯 FIXED PREDICTION BUTTON with EXACT FEATURE ORDER
                 if st.button(f"🎯 Predict {selected_player}'s Next Score", use_container_width=True):
                     if st.session_state.model:
                         try:
                             p_scores = p_data[score_col].dropna() if score_col else pd.Series([])
                             
+                            # Compute all features first
                             feature_data = {
-                                'career_avg': [p_scores.mean() if len(p_scores) > 0 else 25.0],
-                                'player_id': [hash(selected_player) % 10000],
-                                'prev_runs': [p_scores.iloc[-1] if len(p_scores) > 0 else 20.0],
-                                'roll_avg_3': [p_scores.tail(3).mean() if len(p_scores) >= 3 else 
-                                             (p_scores.mean() if len(p_scores) > 0 else 22.0)],
-                                'roll_avg_5': [p_scores.tail(5).mean() if len(p_scores) >= 5 else 
-                                             (p_scores.mean() if len(p_scores) > 0 else 20.0)]
+                                'career_avg': p_scores.mean() if len(p_scores) > 0 else 25.0,
+                                'player_id': hash(selected_player) % 10000,
+                                'prev_runs': p_scores.iloc[-1] if len(p_scores) > 0 else 20.0,
+                                'roll_avg_3': p_scores.tail(3).mean() if len(p_scores) >= 3 else 
+                                            (p_scores.mean() if len(p_scores) > 0 else 22.0),
+                                'roll_avg_5': p_scores.tail(5).mean() if len(p_scores) >= 5 else 
+                                            (p_scores.mean() if len(p_scores) > 0 else 20.0)
                             }
                             
-                            input_features = pd.DataFrame(feature_data)
+                            # ✅ CRITICAL FIX: Use model's exact feature order
+                            if hasattr(st.session_state.model, "feature_names_in_"):
+                                model_feature_order = list(st.session_state.model.feature_names_in_)
+                            else:
+                                model_feature_order = ['career_avg', 'player_id', 'prev_runs', 'roll_avg_3', 'roll_avg_5']
                             
-                            st.success("✅ Generated player-specific features!")
+                            # Build row in EXACT model order
+                            ordered_row = [feature_data[fname] for fname in model_feature_order]
+                            input_features = pd.DataFrame([ordered_row], columns=model_feature_order)
+                            
+                            st.success("✅ Features match model order!")
+                            st.info(f"**Feature order:** {model_feature_order}")
                             st.dataframe(input_features)
                             
+                            # Predict
                             prediction = st.session_state.model.predict(input_features)[0]
                             
                             st.markdown("### 🎯 Prediction Result")
@@ -268,10 +292,11 @@ else:
                                 confidence = p_scores.tail(5).std()
                                 st.metric("Confidence (±)", f"{confidence:.0f} runs")
                             
+                            # Feature importance
                             if hasattr(st.session_state.model, 'feature_importances_'):
                                 st.markdown("### 📊 Feature Importance")
                                 importance_df = pd.DataFrame({
-                                    'Feature': ['career_avg', 'player_id', 'prev_runs', 'roll_avg_3', 'roll_avg_5'],
+                                    'Feature': model_feature_order,
                                     'Importance': st.session_state.model.feature_importances_
                                 }).sort_values('Importance', ascending=False)
                                 st.bar_chart(importance_df.set_index('Feature'))
@@ -279,11 +304,11 @@ else:
                         
                         except Exception as e:
                             st.error(f"❌ Prediction Error: {str(e)}")
-                            st.info(f"Debug - Features: {st.session_state.features}")
+                            st.info(f"Model features: {getattr(st.session_state.model, 'feature_names_in_', 'Not available')}")
                     else:
                         st.error("❌ Model not loaded.")
             else:
-                st.info("👆 Select a player above")
+                st.info("👆 Select a top player above")
         else:
             st.error("❌ No player column found")
             st.write("Columns:", list(df.columns))
@@ -292,5 +317,6 @@ else:
     if st.button("🔄 Reset System", type="secondary"):
         st.session_state.clear()
         st.rerun()
+
 
 
