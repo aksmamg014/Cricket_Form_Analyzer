@@ -12,12 +12,12 @@ import io
 st.set_page_config(page_title="Cricket Player Score Predictor", page_icon="🏏", layout="wide")
 
 # GitHub URLs (Must end in ?raw=true)
-DATA_ZIP_URL = "https://github.com/aksmamg014/Cricket_Form_Analyzer/blob/main/t20s.zip?raw=true"
+DATA_CSV_URL = "https://github.com/aksmamg014/Cricket_Form_Analyzer/raw/main/t20_data.csv"
 MODEL_ZIP_URL = "https://github.com/aksmamg014/Cricket_Form_Analyzer/blob/main/models.zip?raw=true"
 
 # Directories for extraction
 MODEL_EXTRACT_DIR = "models_extracted"
-DATA_EXTRACT_DIR = "t20s_data_extracted"
+DATA_CSV_PATH = "t20_data.csv"  # Local path after download
 
 # ==========================================
 # HELPER FUNCTIONS
@@ -30,6 +30,21 @@ def recursive_find_file(directory, endswith):
             if file.endswith(endswith):
                 return os.path.join(root, file)
     return None
+
+def download_csv(url, local_path, desc):
+    """Downloads CSV if it doesn't exist locally."""
+    if os.path.exists(local_path):
+        return True, f"✅ {desc} found locally."
+    
+    try:
+        response = requests.get(url, timeout=60)
+        response.raise_for_status()
+        
+        with open(local_path, 'wb') as f:
+            f.write(response.content)
+        return True, f"✅ {desc} downloaded."
+    except Exception as e:
+        return False, f"❌ Failed to download {desc}: {str(e)}"
 
 def download_and_extract(url, target_dir, desc):
     """Downloads and extracts zip if target_dir doesn't exist."""
@@ -56,8 +71,8 @@ def initialize_system():
         
     logs = []
 
-    # 1. Download Data
-    ok, msg = download_and_extract(DATA_ZIP_URL, DATA_EXTRACT_DIR, "Data")
+    # 1. Download Data CSV
+    ok, msg = download_csv(DATA_CSV_URL, DATA_CSV_PATH, "t20_data.csv")
     logs.append(msg)
     if not ok:
         st.session_state.logs = logs
@@ -101,26 +116,26 @@ def initialize_system():
         st.session_state.logs = logs
         return
 
-    # 4. Load Data
+    # 4. Load CSV Data
     try:
-        # Find JSON file recursively
-        json_path = recursive_find_file(DATA_EXTRACT_DIR, ".json")
-        
-        if not json_path:
-            logs.append("❌ No JSON file found in data zip.")
+        if not os.path.exists(DATA_CSV_PATH):
+            logs.append("❌ CSV file missing after download.")
             st.session_state.logs = logs
             return
 
-        logs.append(f"📊 Loading data from: {os.path.basename(json_path)}")
+        logs.append(f"📊 Loading data from: {DATA_CSV_PATH}")
         
-        # READ JSON
+        # READ CSV with error handling
         try:
-            st.session_state.player_data = pd.read_json(json_path)
-        except ValueError:
-            # Fallback: sometimes JSONs are line-delimited (NDJSON)
-            st.session_state.player_data = pd.read_json(json_path, lines=True)
+            st.session_state.player_data = pd.read_csv(DATA_CSV_PATH)
+        except pd.errors.ParserError as e:
+            logs.append(f"⚠️ Comma separator failed, trying tab separator...")
+            st.session_state.player_data = pd.read_csv(DATA_CSV_PATH, sep='\t')
+        except UnicodeDecodeError:
+            logs.append(f"⚠️ UTF-8 encoding failed, trying latin-1...")
+            st.session_state.player_data = pd.read_csv(DATA_CSV_PATH, encoding='latin-1')
             
-        logs.append(f"✅ Data loaded: {len(st.session_state.player_data)} rows.")
+        logs.append(f"✅ Data loaded: {len(st.session_state.player_data)} rows, {len(st.session_state.player_data.columns)} columns.")
 
     except Exception as e:
         logs.append(f"❌ Data Load Error: {str(e)}")
@@ -149,7 +164,7 @@ if 'system_ready' not in st.session_state:
 # --- VIEW 1: INITIALIZATION SCREEN ---
 if not st.session_state.system_ready:
     st.subheader("System Initialization")
-    st.info("Click the button below to download models and data from GitHub.")
+    st.info("Click the button below to download t20_data.csv and models from GitHub.")
     
     if st.button("🚀 Initialize System", type="primary"):
         with st.status("Initializing...", expanded=True) as status:
@@ -175,6 +190,12 @@ else:
     df = st.session_state.player_data
     
     if df is not None and not df.empty:
+        # Display data info
+        with st.expander("📋 View Dataset Info"):
+            st.write(f"**Shape:** {df.shape[0]} rows × {df.shape[1]} columns")
+            st.write(f"**Columns:** {', '.join(df.columns.tolist())}")
+            st.dataframe(df.head())
+        
         # Try to find player name column
         possible_cols = [c for c in df.columns if c.lower() in ['player', 'batsman', 'batter', 'striker', 'player_name']]
         player_col = possible_cols[0] if possible_cols else None
@@ -191,15 +212,12 @@ else:
                 # 2. Prediction Button
                 if st.button(f"Predict Next Score for {selected_player}"):
                     if st.session_state.model:
-                        # --- FEATURE PREPARATION (CRITICAL) ---
                         try:
                             # ⚠️ DUMMY DATA: Replace with actual feature calculation
-                            # Create a dataframe with 1 row and correct columns
                             if st.session_state.features:
                                 dummy_features = pd.DataFrame([0]*len(st.session_state.features)).T
                                 dummy_features.columns = st.session_state.features
                             else:
-                                # Fallback if no features were loaded
                                 dummy_features = pd.DataFrame([[0]]) 
                                 
                             prediction = st.session_state.model.predict(dummy_features)[0]
@@ -211,7 +229,8 @@ else:
                     else:
                         st.error("Model object is missing.")
         else:
-            st.error(f"Could not find a 'player' column in the JSON. Columns found: {list(df.columns)}")
+            st.error(f"Could not find a 'player' column in the CSV. Columns found: {list(df.columns)}")
+            st.info("Available columns: " + ", ".join(df.columns))
     else:
         st.error("Dataframe is empty or failed to load.")
         
