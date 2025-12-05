@@ -183,6 +183,7 @@ if not st.session_state.system_ready:
                 st.write(log)
 
 # --- VIEW 2: MAIN PREDICTION SCREEN ---
+# --- VIEW 2: MAIN PREDICTION SCREEN ---
 else:
     st.success("✅ System is Ready")
     
@@ -220,7 +221,7 @@ else:
                 with col1:
                     st.metric("Matches Played", len(p_data))
                 
-                # FIXED: Safe column checking
+                # FIXED: Safe column checking for score
                 score_col = None
                 for col in df.columns:
                     if 'score' in col.lower():
@@ -246,7 +247,6 @@ else:
                                     st.session_state.features[4]: [1.2]
                                 }
                                 input_features = pd.DataFrame(feature_data)
-                                
                                 st.info(f"**Using features:** {list(input_features.columns)}")
                             else:
                                 input_features = pd.DataFrame([[50.0, 30.0, 25.0, 2.5, 1.2]], 
@@ -262,6 +262,26 @@ else:
                             if hasattr(st.session_state.model, 'feature_importances_'):
                                 st.markdown("### 📊 Feature Importance")
                                 importance_df = pd.DataFrame({
-                                    '
+                                    'Feature': st.session_state.features,
+                                    'Importance': st.session_state.model.feature_importances_
+                                }).sort_values('Importance', ascending=False)
+                                st.bar_chart(importance_df.set_index('Feature'))
+                            
+                        except Exception as e:
+                            st.error(f"Prediction Error: {e}")
+                            st.info(f"Model expects {len(st.session_state.features)} features: {st.session_state.features}")
+                    else:
+                        st.error("Model object is missing.")
+        else:
+            st.error(f"Could not find a 'player' column. Columns: {list(df.columns)}")
+    else:
+        st.error("Dataframe is empty or failed to load.")
+        
+    # Reset Button
+    if st.button("🔄 Reset System", type="secondary"):
+        st.session_state.clear()
+        st.rerun()
+
+
 
 
