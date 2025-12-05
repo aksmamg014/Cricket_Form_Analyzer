@@ -62,15 +62,7 @@ def initialize_system():
         st.session_state.logs = logs
         return
 
-    # 2. Download Model
-    ok, msg = download_and_extract(MODEL_ZIP_URL, MODEL_EXTRACT_DIR, "Model")
-    logs.append(msg)
-    if not ok:
-        st.session_state.logs = logs
-        return
-
-    # 3. Load Model
-    try:
+    # try:
         model_path = recursive_find_file(MODEL_EXTRACT_DIR, ".joblib")
         if not model_path:
             logs.append("❌ No .joblib file found in model zip.")
@@ -79,6 +71,43 @@ def initialize_system():
 
         logs.append(f"📦 Loading model from: {os.path.basename(model_path)}")
         payload = joblib.load(model_path)
+
+        if isinstance(payload, dict) and 'model' in payload:
+            st.session_state.model = payload['model']
+            raw_features = payload.get('feature_names')
+            if raw_features is not None:
+                if hasattr(raw_features, 'tolist'):
+                    st.session_state.features = raw_features.tolist()
+                elif hasattr(raw_features, 'columns'):
+                    st.session_state.features = raw_features.columns.tolist()
+                else:
+                    st.session_state.features = list(raw_features)
+            else:
+                st.session_state.features = []
+        else:
+            st.session_state.model = payload
+            st.session_state.features = []
+
+        logs.append("✅ Model loaded into memory.")
+
+    except Exception as e:
+        logs.append(f"❌ Model Load Error: {str(e)}")
+        st.session_state.logs = logs
+        return
+
+    # 3. Load Data directly from CSV
+    try:
+        logs.append("📊 Loading data from GitHub CSV...")
+        st.session_state.player_data = pd.read_csv(DATA_CSV_URL)
+        logs.append(f"✅ Data loaded: {len(st.session_state.player_data)} rows.")
+    except Exception as e:
+        logs.append(f"❌ Data Load Error: {str(e)}")
+        st.session_state.logs = logs
+        return
+
+    # Success
+    st.session_state.logs = logs
+    st.session_state.system_ready = True
         
         # Handle Payload
         if isinstance(payload, dict) and 'model' in payload:
@@ -220,4 +249,5 @@ else:
     if st.button("Reset System"):
         st.session_state.clear()
         st.rerun()
+
 
