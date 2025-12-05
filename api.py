@@ -11,30 +11,19 @@ import io
 # ==========================================
 st.set_page_config(page_title="Cricket Score Predictor", page_icon="🏏", layout="wide")
 
-# -------------------------------------------
-# 1. Define URLs and File Names
-# -------------------------------------------
-# URL for the DATA zip (t20s.zip)
+# URLs and paths
 DATA_ZIP_URL = "https://github.com/aksmamg014/Cricket_Form_Analyzer/blob/main/t20s.zip?raw=true"
-
-# Name of the MODEL zip (must exist in your repo root)
 MODEL_ZIP_FILE = "models.zip" 
-
-# Directory where models are extracted
 MODEL_DIR = "models/rf_cricket_score"
-
-# Directory where data is extracted
-DATA_DIR = "t20s_data" # We'll extract data here
+DATA_DIR = "t20s_data"
 
 # ==========================================
-# CACHED SETUP FUNCTIONS (Run Automatically)
+# CACHED SETUP FUNCTIONS
 # ==========================================
 
 @st.cache_resource
 def setup_model_files():
-    """
-    Ensures model files are present. Unzips 'models.zip' if needed.
-    """
+    """Ensures model files are present by unzipping models.zip"""
     if os.path.exists(MODEL_DIR) and len(os.listdir(MODEL_DIR)) > 0:
         return True
         
@@ -51,30 +40,23 @@ def setup_model_files():
 
 @st.cache_resource
 def download_data_on_startup():
-    """
-    Automatically downloads and extracts the data zip from GitHub 
-    if the data folder doesn't exist.
-    """
-    # Check if data is already there
+    """Downloads and extracts t20s.zip from GitHub"""
     if os.path.exists(DATA_DIR) and len(os.listdir(DATA_DIR)) > 0:
-        return f"✅ Data ready in `{DATA_DIR}` (Cached)"
+        return True
 
-    # Download
     try:
-        response = requests.get(DATA_ZIP_URL)
+        response = requests.get(DATA_ZIP_URL, timeout=30)
         response.raise_for_status()
-        
-        # Unzip
         z = zipfile.ZipFile(io.BytesIO(response.content))
-        z.extractall(DATA_DIR) # Extract into our specific data folder
-        
-        return f"✅ Data downloaded & extracted to `{DATA_DIR}`"
+        z.extractall(DATA_DIR)
+        return True
     except Exception as e:
-        return f"❌ Data download failed: {e}"
+        st.error(f"❌ Data download failed: {e}")
+        return False
 
 @st.cache_resource
 def load_model_artifacts(model_dir):
-    """Loads model, features, and metadata safely."""
+    """Loads model, features, and metadata"""
     if not setup_model_files():
         return None, None, {}
 
@@ -121,6 +103,7 @@ def load_model_artifacts(model_dir):
 
 @st.cache_resource
 def load_feature_names_fallback(model_dir):
+    """Loads feature names from separate file if needed"""
     path = os.path.join(model_dir, "feature_names.joblib")
     if os.path.exists(path):
         names = joblib.load(path)
@@ -129,103 +112,163 @@ def load_feature_names_fallback(model_dir):
         return names
     return None
 
+@st.cache_data
+def load_cricket_data():
+    """Loads the cricket CSV data from extracted folder"""
+    if not os.path.exists(DATA_DIR):
+        return None
+    
+    # Find CSV files in the data directory
+    csv_files = [f for f in os.listdir(DATA_DIR) if f.endswith('.csv')]
+    
+    if not csv_files:
+        st.error(f"No CSV files found in {DATA_DIR}")
+        return None
+    
+    # Load the first CSV (adjust if you have multiple files)
+    try:
+        data_path = os.path.join(DATA_DIR, csv_files[0])
+        df = pd.read_csv(data_path)
+        return df
+    except Exception as e:
+        st.error(f"Error loading data: {e}")
+        return None
+
+def prepare_player_features(player_df, feature_names):
+    """
+    Prepares features for prediction based on player's recent performance.
+    This function calculates aggregated stats from the player's history.
+    Adjust this logic based on your actual feature engineering.
+    """
+    features = {}
+    
+    # Example feature calculations (customize based on your model's features)
+    for feature in feature_names:
+        feature_lower = feature.lower()
+        
+        # Calculate based on feature name patterns
+        if 'avg' in feature_lower or 'mean' in feature_lower:
+            if 'runs' in feature_lower or 'score' in feature_lower:
+                features[feature] = player_df['runs'].mean() if 'runs' in player_df.columns else 0
+            elif 'balls' in feature_lower:
+                features[feature] = player_df['balls_faced'].mean() if 'balls_faced' in player_df.columns else 0
+        elif 'last' in feature_lower:
+            if 'runs' in feature_lower:
+                features[feature] = player_df['runs'].iloc[-1] if len(player_df) > 0 and 'runs' in player_df.columns else 0
+        elif 'total' in feature_lower:
+            if 'runs' in feature_lower:
+                features[feature] = player_df['runs'].sum() if 'runs' in player_df.columns else 0
+        else:
+            # Default: use mean of numeric columns or 0
+            features[feature] = 0
+    
+    return pd.DataFrame([features])
+
 # ==========================================
-# MAIN UI
+# MAIN APP
 # ==========================================
 
-st.title("🏏 Cricket Score Predictor")
+st.title("🏏 Cricket Player Score Predictor")
+st.markdown("Select a player and predict their next match performance")
 
-# --- 1. Auto-Run Setup ---
-# This runs immediately when the script starts
-data_status = download_data_on_startup()
+# --- Auto-Run Setup ---
+data_ready = download_data_on_startup()
 model, meta_features, metadata = load_model_artifacts(MODEL_DIR)
 
 if (meta_features is None or len(meta_features) == 0) and model is not None:
     meta_features = load_feature_names_fallback(MODEL_DIR)
 
-# --- 2. Sidebar Status ---
+cricket_data = load_cricket_data() if data_ready else None
+
+# --- Sidebar ---
 with st.sidebar:
     st.header("⚙️ System Status")
     
-    # Data Status
-    if "✅" in data_status:
-        st.success(data_status)
+    if data_ready:
+        st.success("✅ Data Loaded")
     else:
-        st.error(data_status)
+        st.error("❌ Data Missing")
         
-    # Model Status
     if model is not None:
-        st.success(f"✅ Model Loaded")
+        st.success("✅ Model Loaded")
         if metadata.get('timestamp'):
             st.caption(f"Version: {metadata.get('timestamp')}")
             st.metric("Model MAE", f"{metadata.get('cv_mae_mean', 0):.2f}")
     else:
         st.error("❌ Model Missing")
-
-# --- 3. Prediction Interface ---
-if model is not None and meta_features is not None:
-    st.subheader("🔮 Predict Score")
     
-    with st.form("prediction_form"):
-        st.info("Enter match conditions below:")
-        
-        cols = st.columns(3)
-        input_data = {}
-        
-        for i, feature in enumerate(meta_features):
-            with cols[i % 3]:
-                # Smart Defaults
-                val = 0.0
-                min_v = 0.0
-                max_v = None
-                step = 1.0
-                
-                feature_lower = str(feature).lower()
-                
-                if 'runs' in feature_lower or 'score' in feature_lower:
-                    val = 160.0
-                elif 'wickets' in feature_lower:
-                    val = 2.0
-                    max_v = 10.0
-                elif 'overs' in feature_lower:
-                    val = 10.0
-                    max_v = 50.0
-                    step = 0.1
-                elif 'rate' in feature_lower: # Run rate, etc.
-                    val = 8.0
-                    step = 0.1
-                
-                input_data[feature] = st.number_input(
-                    label=feature, 
-                    min_value=min_v, 
-                    max_value=max_v, 
-                    value=val,
-                    step=step
-                )
+    if cricket_data is not None:
+        st.info(f"📊 {len(cricket_data)} records available")
 
-        submitted = st.form_submit_button("🚀 Run Prediction")
-
-    if submitted:
-        try:
-            df_input = pd.DataFrame([input_data])
-            prediction = model.predict(df_input)[0]
+# --- Main Prediction Interface ---
+if model is not None and meta_features is not None and cricket_data is not None:
+    
+    # Identify player column (adjust column name based on your CSV)
+    player_column = None
+    possible_names = ['player', 'player_name', 'batsman', 'striker', 'batter']
+    for col in cricket_data.columns:
+        if col.lower() in possible_names:
+            player_column = col
+            break
+    
+    if player_column is None:
+        st.error("❌ Could not find player name column in data. Available columns:")
+        st.write(cricket_data.columns.tolist())
+    else:
+        # Get unique player names
+        players = sorted(cricket_data[player_column].dropna().unique())
+        
+        st.subheader("🎯 Select Player")
+        
+        # Player selection
+        selected_player = st.selectbox(
+            "Choose a player:",
+            options=players,
+            index=0 if len(players) > 0 else None
+        )
+        
+        if selected_player:
+            # Filter player data
+            player_data = cricket_data[cricket_data[player_column] == selected_player]
             
-            st.markdown("---")
-            st.markdown(f"### 🎯 Predicted Score: **{int(prediction)}**")
+            # Display player stats
+            col1, col2, col3 = st.columns(3)
+            with col1:
+                st.metric("Total Matches", len(player_data))
+            with col2:
+                if 'runs' in cricket_data.columns:
+                    st.metric("Average Runs", f"{player_data['runs'].mean():.1f}")
+            with col3:
+                if 'runs' in cricket_data.columns:
+                    st.metric("Total Runs", f"{player_data['runs'].sum():.0f}")
             
-            # Optional: Show input summary
-            with st.expander("See Input Summary"):
-                st.dataframe(df_input)
-                
-        except Exception as e:
-            st.error(f"Prediction Error: {e}")
+            # Predict button
+            if st.button("🚀 Predict Next Match Score", type="primary"):
+                try:
+                    # Prepare features from player history
+                    input_features = prepare_player_features(player_data, meta_features)
+                    
+                    # Make prediction
+                    prediction = model.predict(input_features)[0]
+                    
+                    # Display result
+                    st.markdown("---")
+                    st.markdown(f"### 🎯 Predicted Score for {selected_player}")
+                    st.markdown(f"## **{int(prediction)} Runs**")
+                    
+                    # Show recent performance
+                    with st.expander("📈 Recent Performance"):
+                        if 'runs' in player_data.columns:
+                            recent = player_data.tail(5)[['runs'] if 'runs' in player_data.columns else player_data.columns[:3]]
+                            st.dataframe(recent)
+                        
+                except Exception as e:
+                    st.error(f"Prediction Error: {e}")
+                    st.write("Debug: Feature mismatch. Check your feature engineering.")
 
 else:
-    st.warning("⚠️ System initializing... if this persists, check logs.")
-
-
-
-
-
-
-
+    st.warning("⚠️ System initializing... Please wait.")
+    if model is None:
+        st.error("Model not loaded. Check that models.zip exists in repo.")
+    if cricket_data is None:
+        st.error("Data not loaded. Check t20s.zip download.")
