@@ -11,12 +11,44 @@ import io
 # ==========================================
 st.set_page_config(page_title="Cricket Score Predictor", page_icon="🏏", layout="wide")
 
-# Placeholder for your GitHub Raw URL (User must update this)
-GITHUB_ZIP_URL = "https://github.com/aksmamg014/Cricket_Form_Analyzer/blob/main/t20s.zip"
+# FIXED URL: Added '?raw=true' so we get the file, not the webpage
+GITHUB_ZIP_URL = "https://github.com/aksmamg014/Cricket_Form_Analyzer/blob/main/t20s.zip?raw=true"
 
 # Directory where we want the model files
 MODEL_DIR = "models/rf_cricket_score"
-# Name of the zip file you pushed to GitHub
+
+# Name of the zip file you pushed to GitHub (ensure this matches your repo exactly!)
+# Based on your URL, it looks like the file in the repo is 't20s.zip', not 'models.zip'.
+# If you want to download the data zip, use 't20s.zip'.
+# If you have a separate model zip, make sure the name matches what is in the repo.
+MODEL_ZIP_FILE = "models.zip" 
+
+
+# ==========================================
+# SETUP & CACHED FUNCTIONS
+# ==========================================
+
+import streamlit as st
+import pandas as pd
+import joblib
+import os
+import requests
+import zipfile
+import io
+
+# ==========================================
+# CONFIGURATION
+# ==========================================
+st.set_page_config(page_title="Cricket Score Predictor", page_icon="🏏", layout="wide")
+
+# Corrected URL with raw=true to ensure file download, not HTML page
+GITHUB_ZIP_URL = "https://github.com/aksmamg014/Cricket_Form_Analyzer/blob/main/t20s.zip?raw=true"
+
+# Directory where we expect the model files to land after extraction
+MODEL_DIR = "models/rf_cricket_score"
+
+# Name of the zip file containing the model (must actully exist in your repo root)
+# If your model is inside t20s.zip, change this to "t20s.zip"
 MODEL_ZIP_FILE = "models.zip" 
 
 # ==========================================
@@ -29,19 +61,29 @@ def setup_model_files():
     Checks if model files exist. If not, tries to unzip 'model.zip'.
     Returns True if successful, False otherwise.
     """
-    # Check if directory exists and has files
-    if os.path.exists(MODEL_DIR) and os.listdir(MODEL_DIR):
+    # 1. Check if model directory already exists and is not empty
+    if os.path.exists(MODEL_DIR) and len(os.listdir(MODEL_DIR)) > 0:
         return True
         
-    # If not, try to unzip
+    # 2. If not, try to unzip the model archive
     if os.path.exists(MODEL_ZIP_FILE):
         try:
             with zipfile.ZipFile(MODEL_ZIP_FILE, 'r') as zip_ref:
-                zip_ref.extractall(".") # Extracts to current directory, preserving paths
-            return True
+                zip_ref.extractall(".") # Extracts to current directory
+            
+            # Verify extraction worked
+            if os.path.exists(MODEL_DIR) and len(os.listdir(MODEL_DIR)) > 0:
+                return True
+            else:
+                st.error(f"Unzipped {MODEL_ZIP_FILE}, but '{MODEL_DIR}' is still empty or missing. Check zip structure.")
+                return False
+                
         except Exception as e:
             st.error(f"Failed to unzip model file: {e}")
             return False
+    
+    # 3. Fallback: If zip is missing, maybe we need to download it (optional advanced step)
+    # For now, we just return False if the local file isn't there.
     return False
 
 @st.cache_resource
@@ -56,7 +98,11 @@ def load_latest_model(model_dir):
         return None, None, None
 
     # Find all model files
-    files = [f for f in os.listdir(model_dir) if f.startswith("rf_model_") and f.endswith(".joblib")]
+    try:
+        files = [f for f in os.listdir(model_dir) if f.startswith("rf_model_") and f.endswith(".joblib")]
+    except FileNotFoundError:
+        return None, None, None
+        
     if not files:
         return None, None, None
 
@@ -66,10 +112,11 @@ def load_latest_model(model_dir):
     
     try:
         payload = joblib.load(model_path)
+        # Handle both dictionary format (from your code) and raw model
         if isinstance(payload, dict) and 'model' in payload:
             return payload['model'], payload.get('feature_names'), payload.get('metadata')
         else:
-            return payload, None, {}
+            return payload, None, {} # Fallback if raw model
     except Exception as e:
         st.error(f"Error loading model: {e}")
         return None, None, None
@@ -117,10 +164,11 @@ with st.sidebar:
     if model:
         st.success(f"✅ Model Loaded!")
         if metadata and 'timestamp' in metadata:
-            st.caption(f"Trained: {metadata['timestamp']}")
+            st.caption(f"Trained: {metadata.get('timestamp')}")
             st.metric("CV MAE", f"{metadata.get('cv_mae_mean', 0):.2f}")
     else:
-        st.error("❌ Model not found. Please check 'model.zip' is in repo.")
+        st.error(f"❌ Model not found in `{MODEL_DIR}`.")
+        st.warning(f"Ensure `{MODEL_ZIP_FILE}` exists in repo and contains `{MODEL_DIR}` folder.")
     
     st.markdown("---")
     st.subheader("🔗 Data Source")
@@ -142,6 +190,7 @@ if model and meta_features:
         
         for i, feature in enumerate(meta_features):
             with cols[i % 3]:
+                # Smart defaults based on feature names
                 if 'runs' in feature.lower() or 'score' in feature.lower():
                     input_data[feature] = st.number_input(feature, min_value=0, value=100)
                 elif 'wickets' in feature.lower():
@@ -154,12 +203,20 @@ if model and meta_features:
         submit = st.form_submit_button("🚀 Predict Score")
 
     if submit:
+        # Convert inputs to DataFrame
         df_input = pd.DataFrame([input_data])
-        prediction = model.predict(df_input)[0]
-        st.markdown("---")
-        st.metric(label="Predicted Score", value=f"{prediction:.0f} Runs")
+        
+        # Predict
+        try:
+            prediction = model.predict(df_input)[0]
+            st.markdown("---")
+            st.metric(label="Predicted Score", value=f"{prediction:.0f} Runs")
+        except Exception as e:
+            st.error(f"Prediction failed: {e}")
 else:
-    st.info("👋 Please upload `model.zip` to your GitHub repo to start.")
+    st.info("👋 Please ensure `models.zip` is in your repo and contains the correct folder structure.")
+
+
 
 
 
