@@ -107,22 +107,35 @@ def initialize_system():
         return
 
     # 4. Load Data
+       # ... inside initialize_system > 4. Load Data ...
     try:
-        csv_path = recursive_find_file(DATA_EXTRACT_DIR, ".csv")
-        if not csv_path:
-            logs.append("❌ No CSV file found in data zip.")
+        # Find JSON file recursively
+        json_path = recursive_find_file(DATA_EXTRACT_DIR, ".json")
+        
+        if not json_path:
+            logs.append("❌ No JSON file found in data zip.")
             st.session_state.logs = logs
             return
 
-        logs.append(f"📊 Loading data from: {os.path.basename(csv_path)}")
-        # Use low_memory=False for safety with large files
-        st.session_state.player_data = pd.read_csv(csv_path, low_memory=False)
+        logs.append(f"📊 Loading data from: {os.path.basename(json_path)}")
+        
+        # READ JSON
+        # Note: 'orient' depends on your JSON structure. 
+        # Common ones: 'records', 'split', 'index'. 
+        # If unsure, try without arguments first.
+        try:
+            st.session_state.player_data = pd.read_json(json_path)
+        except ValueError:
+             # Fallback: sometimes JSONs are line-delimited (NDJSON)
+            st.session_state.player_data = pd.read_json(json_path, lines=True)
+            
         logs.append(f"✅ Data loaded: {len(st.session_state.player_data)} rows.")
 
     except Exception as e:
         logs.append(f"❌ Data Load Error: {str(e)}")
         st.session_state.logs = logs
         return
+
 
     # Success
     st.session_state.logs = logs
@@ -207,3 +220,4 @@ else:
     if st.button("Reset System"):
         st.session_state.clear()
         st.rerun()
+
