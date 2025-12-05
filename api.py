@@ -97,24 +97,34 @@ def initialize_system():
         return
 
     # 4. Load Data
-    try:
-        json_path = recursive_find_file(DATA_EXTRACT_DIR, ".json")
-        if not json_path:
-            logs.append("❌ No JSON file found in data zip.")
-            st.session_state.logs = logs
-            return
+     try:
+     model_path = recursive_find_file(MODEL_EXTRACT_DIR, ".joblib")
+     if not model_path:
+         logs.append("❌ No .joblib file found in model zip.")
+         st.session_state.logs = logs
+         return
 
-        logs.append(f"📊 Loading data from: {os.path.basename(json_path)}")
-        try:
-            st.session_state.player_data = pd.read_json(json_path)
-        except ValueError:
-            st.session_state.player_data = pd.read_json(json_path, lines=True)
+     logs.append(f"📦 Loading model from: {os.path.basename(model_path)}")
+     payload = joblib.load(model_path)
 
-        logs.append(f"✅ Data loaded: {len(st.session_state.player_data)} rows.")
-    except Exception as e:
-        logs.append(f"❌ Data Load Error: {str(e)}")
-        st.session_state.logs = logs
-        return
+     if isinstance(payload, dict) and 'model' in payload:
+         st.session_state.model = payload['model']
+         raw_features = payload.get('feature_names', [])
+         if hasattr(raw_features, 'tolist'):
+             st.session_state.features = raw_features.tolist()
+         elif hasattr(raw_features, 'columns'):
+             st.session_state.features = raw_features.columns.tolist()
+         else:
+             st.session_state.features = list(raw_features)
+     else:
+         st.session_state.model = payload
+         st.session_state.features = []
+
+     logs.append("✅ Model loaded into memory.")
+ except Exception as e:
+     logs.append(f"❌ Model Load Error: {str(e)}")
+     st.session_state.logs = logs
+     return
 
     # Success
     st.session_state.logs = logs
@@ -260,6 +270,7 @@ else:
     if st.button("Reset System"):
         st.session_state.clear()
         st.rerun()
+
 
 
 
