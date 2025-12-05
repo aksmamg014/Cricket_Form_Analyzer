@@ -11,210 +11,219 @@ import io
 # ==========================================
 st.set_page_config(page_title="Cricket Score Predictor", page_icon="🏏", layout="wide")
 
-# FIXED URL: Added '?raw=true' so we get the file, not the webpage
-GITHUB_ZIP_URL = "https://github.com/aksmamg014/Cricket_Form_Analyzer/blob/main/t20s.zip?raw=true"
+# -------------------------------------------
+# 1. Define URLs and File Names
+# -------------------------------------------
+# URL for the DATA zip (t20s.zip)
+DATA_ZIP_URL = "https://github.com/aksmamg014/Cricket_Form_Analyzer/blob/main/t20s.zip?raw=true"
 
-# Directory where we want the model files
-MODEL_DIR = "models/rf_cricket_score"
-
-# Name of the zip file you pushed to GitHub (ensure this matches your repo exactly!)
-# Based on your URL, it looks like the file in the repo is 't20s.zip', not 'models.zip'.
-# If you want to download the data zip, use 't20s.zip'.
-# If you have a separate model zip, make sure the name matches what is in the repo.
+# Name of the MODEL zip (must exist in your repo root)
 MODEL_ZIP_FILE = "models.zip" 
 
-
-# ==========================================
-# SETUP & CACHED FUNCTIONS
-# ==========================================
-
-import streamlit as st
-import pandas as pd
-import joblib
-import os
-import requests
-import zipfile
-import io
-
-# ==========================================
-# CONFIGURATION
-# ==========================================
-st.set_page_config(page_title="Cricket Score Predictor", page_icon="🏏", layout="wide")
-
-# Corrected URL with raw=true to ensure file download, not HTML page
-GITHUB_ZIP_URL = "https://github.com/aksmamg014/Cricket_Form_Analyzer/blob/main/t20s.zip?raw=true"
-
-# Directory where we expect the model files to land after extraction
+# Directory where models are extracted
 MODEL_DIR = "models/rf_cricket_score"
 
-# Name of the zip file containing the model (must actully exist in your repo root)
-# If your model is inside t20s.zip, change this to "t20s.zip"
-MODEL_ZIP_FILE = "models.zip" 
+# Directory where data is extracted
+DATA_DIR = "t20s_data" # We'll extract data here
 
 # ==========================================
-# SETUP & CACHED FUNCTIONS
+# CACHED SETUP FUNCTIONS (Run Automatically)
 # ==========================================
 
 @st.cache_resource
 def setup_model_files():
     """
-    Checks if model files exist. If not, tries to unzip 'model.zip'.
-    Returns True if successful, False otherwise.
+    Ensures model files are present. Unzips 'models.zip' if needed.
     """
-    # 1. Check if model directory already exists and is not empty
     if os.path.exists(MODEL_DIR) and len(os.listdir(MODEL_DIR)) > 0:
         return True
         
-    # 2. If not, try to unzip the model archive
     if os.path.exists(MODEL_ZIP_FILE):
         try:
             with zipfile.ZipFile(MODEL_ZIP_FILE, 'r') as zip_ref:
-                zip_ref.extractall(".") # Extracts to current directory
-            
-            # Verify extraction worked
+                zip_ref.extractall(".") 
             if os.path.exists(MODEL_DIR) and len(os.listdir(MODEL_DIR)) > 0:
                 return True
-            else:
-                st.error(f"Unzipped {MODEL_ZIP_FILE}, but '{MODEL_DIR}' is still empty or missing. Check zip structure.")
-                return False
-                
         except Exception as e:
-            st.error(f"Failed to unzip model file: {e}")
+            st.error(f"Failed to unzip model: {e}")
             return False
-    
-    # 3. Fallback: If zip is missing, maybe we need to download it (optional advanced step)
-    # For now, we just return False if the local file isn't there.
     return False
 
 @st.cache_resource
-def load_latest_model(model_dir):
-    """Loads the latest .joblib model from the directory."""
-    
-    # Ensure files are ready
+def download_data_on_startup():
+    """
+    Automatically downloads and extracts the data zip from GitHub 
+    if the data folder doesn't exist.
+    """
+    # Check if data is already there
+    if os.path.exists(DATA_DIR) and len(os.listdir(DATA_DIR)) > 0:
+        return f"✅ Data ready in `{DATA_DIR}` (Cached)"
+
+    # Download
+    try:
+        response = requests.get(DATA_ZIP_URL)
+        response.raise_for_status()
+        
+        # Unzip
+        z = zipfile.ZipFile(io.BytesIO(response.content))
+        z.extractall(DATA_DIR) # Extract into our specific data folder
+        
+        return f"✅ Data downloaded & extracted to `{DATA_DIR}`"
+    except Exception as e:
+        return f"❌ Data download failed: {e}"
+
+@st.cache_resource
+def load_model_artifacts(model_dir):
+    """Loads model, features, and metadata safely."""
     if not setup_model_files():
-        return None, None, None
+        return None, None, {}
 
     if not os.path.exists(model_dir):
-        return None, None, None
+        return None, None, {}
 
-    # Find all model files
     try:
         files = [f for f in os.listdir(model_dir) if f.startswith("rf_model_") and f.endswith(".joblib")]
     except FileNotFoundError:
-        return None, None, None
+        return None, None, {}
         
     if not files:
-        return None, None, None
+        return None, None, {}
 
-    # Sort by timestamp (latest last)
     latest_file = sorted(files)[-1]
     model_path = os.path.join(model_dir, latest_file)
     
     try:
         payload = joblib.load(model_path)
-        # Handle both dictionary format (from your code) and raw model
+        
+        model_obj = None
+        features = None
+        meta = {}
+
         if isinstance(payload, dict) and 'model' in payload:
-            return payload['model'], payload.get('feature_names'), payload.get('metadata')
+            model_obj = payload['model']
+            features = payload.get('feature_names')
+            meta = payload.get('metadata', {})
         else:
-            return payload, None, {} # Fallback if raw model
+            model_obj = payload
+        
+        # Fix DataFrame ambiguity
+        if features is not None:
+            if hasattr(features, 'tolist'):
+                features = features.tolist()
+            elif hasattr(features, 'columns'):
+                features = features.columns.tolist()
+        
+        return model_obj, features, meta
+
     except Exception as e:
         st.error(f"Error loading model: {e}")
-        return None, None, None
+        return None, None, {}
 
 @st.cache_resource
-def load_feature_names(model_dir):
+def load_feature_names_fallback(model_dir):
     path = os.path.join(model_dir, "feature_names.joblib")
     if os.path.exists(path):
-        return joblib.load(path)
+        names = joblib.load(path)
+        if hasattr(names, 'tolist'):
+            return names.tolist()
+        return names
     return None
-
-@st.cache_data
-def download_and_extract_github_data(url):
-    if "YOUR_USER" in url: 
-        return None
-    try:
-        response = requests.get(url)
-        response.raise_for_status()
-        z = zipfile.ZipFile(io.BytesIO(response.content))
-        extract_path = "temp_data"
-        z.extractall(extract_path)
-        return extract_path
-    except Exception as e:
-        st.error(f"Failed to download data from GitHub: {e}")
-        return None
 
 # ==========================================
 # MAIN UI
 # ==========================================
 
 st.title("🏏 Cricket Score Predictor")
-st.markdown(f"**Model:** Random Forest | **Backend:** Scikit-Learn")
 
-# --- Sidebar: Settings ---
+# --- 1. Auto-Run Setup ---
+# This runs immediately when the script starts
+data_status = download_data_on_startup()
+model, meta_features, metadata = load_model_artifacts(MODEL_DIR)
+
+if (meta_features is None or len(meta_features) == 0) and model is not None:
+    meta_features = load_feature_names_fallback(MODEL_DIR)
+
+# --- 2. Sidebar Status ---
 with st.sidebar:
-    st.header("⚙️ Settings")
+    st.header("⚙️ System Status")
     
-    # Dynamic Model Loader
-    model, meta_features, metadata = load_latest_model(MODEL_DIR)
-    
-    # Fallback to separate feature file
-    if not meta_features and model:
-        meta_features = load_feature_names(MODEL_DIR)
-    
-    if model:
-        st.success(f"✅ Model Loaded!")
-        if metadata and 'timestamp' in metadata:
-            st.caption(f"Trained: {metadata.get('timestamp')}")
-            st.metric("CV MAE", f"{metadata.get('cv_mae_mean', 0):.2f}")
+    # Data Status
+    if "✅" in data_status:
+        st.success(data_status)
     else:
-        st.error(f"❌ Model not found in `{MODEL_DIR}`.")
-        st.warning(f"Ensure `{MODEL_ZIP_FILE}` exists in repo and contains `{MODEL_DIR}` folder.")
-    
-    st.markdown("---")
-    st.subheader("🔗 Data Source")
-    github_url = st.text_input("GitHub Zip URL", value=GITHUB_ZIP_URL)
-    
-    if st.button("Download Data"):
-        data_path = download_and_extract_github_data(github_url)
-        if data_path:
-            st.success(f"Data extracted to `{data_path}`")
+        st.error(data_status)
+        
+    # Model Status
+    if model is not None:
+        st.success(f"✅ Model Loaded")
+        if metadata.get('timestamp'):
+            st.caption(f"Version: {metadata.get('timestamp')}")
+            st.metric("Model MAE", f"{metadata.get('cv_mae_mean', 0):.2f}")
+    else:
+        st.error("❌ Model Missing")
 
-# --- Main Prediction Area ---
-
-if model and meta_features:
-    st.subheader("🔮 Make a Prediction")
+# --- 3. Prediction Interface ---
+if model is not None and meta_features is not None:
+    st.subheader("🔮 Predict Score")
+    
     with st.form("prediction_form"):
-        st.markdown("### Input Features")
+        st.info("Enter match conditions below:")
+        
         cols = st.columns(3)
         input_data = {}
         
         for i, feature in enumerate(meta_features):
             with cols[i % 3]:
-                # Smart defaults based on feature names
-                if 'runs' in feature.lower() or 'score' in feature.lower():
-                    input_data[feature] = st.number_input(feature, min_value=0, value=100)
-                elif 'wickets' in feature.lower():
-                    input_data[feature] = st.number_input(feature, min_value=0, max_value=10, value=2)
-                elif 'overs' in feature.lower():
-                    input_data[feature] = st.number_input(feature, min_value=0.0, max_value=50.0, value=10.0)
-                else:
-                    input_data[feature] = st.number_input(feature, value=0.0)
+                # Smart Defaults
+                val = 0.0
+                min_v = 0.0
+                max_v = None
+                step = 1.0
+                
+                feature_lower = str(feature).lower()
+                
+                if 'runs' in feature_lower or 'score' in feature_lower:
+                    val = 160.0
+                elif 'wickets' in feature_lower:
+                    val = 2.0
+                    max_v = 10.0
+                elif 'overs' in feature_lower:
+                    val = 10.0
+                    max_v = 50.0
+                    step = 0.1
+                elif 'rate' in feature_lower: # Run rate, etc.
+                    val = 8.0
+                    step = 0.1
+                
+                input_data[feature] = st.number_input(
+                    label=feature, 
+                    min_value=min_v, 
+                    max_value=max_v, 
+                    value=val,
+                    step=step
+                )
 
-        submit = st.form_submit_button("🚀 Predict Score")
+        submitted = st.form_submit_button("🚀 Run Prediction")
 
-    if submit:
-        # Convert inputs to DataFrame
-        df_input = pd.DataFrame([input_data])
-        
-        # Predict
+    if submitted:
         try:
+            df_input = pd.DataFrame([input_data])
             prediction = model.predict(df_input)[0]
+            
             st.markdown("---")
-            st.metric(label="Predicted Score", value=f"{prediction:.0f} Runs")
+            st.markdown(f"### 🎯 Predicted Score: **{int(prediction)}**")
+            
+            # Optional: Show input summary
+            with st.expander("See Input Summary"):
+                st.dataframe(df_input)
+                
         except Exception as e:
-            st.error(f"Prediction failed: {e}")
+            st.error(f"Prediction Error: {e}")
+
 else:
-    st.info("👋 Please ensure `models.zip` is in your repo and contains the correct folder structure.")
+    st.warning("⚠️ System initializing... if this persists, check logs.")
+
+
 
 
 
