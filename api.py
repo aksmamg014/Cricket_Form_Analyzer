@@ -95,37 +95,6 @@ def initialize_system():
         logs.append(f"❌ Model Load Error: {str(e)}")
         st.session_state.logs = logs
         return
-
-    # 4. Load Data
-     try:
-     model_path = recursive_find_file(MODEL_EXTRACT_DIR, ".joblib")
-     if not model_path:
-         logs.append("❌ No .joblib file found in model zip.")
-         st.session_state.logs = logs
-         return
-
-     logs.append(f"📦 Loading model from: {os.path.basename(model_path)}")
-     payload = joblib.load(model_path)
-
-     if isinstance(payload, dict) and 'model' in payload:
-         st.session_state.model = payload['model']
-         raw_features = payload.get('feature_names', [])
-         if hasattr(raw_features, 'tolist'):
-             st.session_state.features = raw_features.tolist()
-         elif hasattr(raw_features, 'columns'):
-             st.session_state.features = raw_features.columns.tolist()
-         else:
-             st.session_state.features = list(raw_features)
-     else:
-         st.session_state.model = payload
-         st.session_state.features = []
-
-     logs.append("✅ Model loaded into memory.")
- except Exception as e:
-     logs.append(f"❌ Model Load Error: {str(e)}")
-     st.session_state.logs = logs
-     return
-
     # Success
     st.session_state.logs = logs
     st.session_state.system_ready = True
@@ -270,6 +239,7 @@ else:
     if st.button("Reset System"):
         st.session_state.clear()
         st.rerun()
+
 
 
 
