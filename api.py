@@ -50,6 +50,10 @@ def download_and_extract(url, target_dir, desc):
 # ==========================================
 
 def initialize_system():
+    # Initialize session state variables if they don't exist
+    if 'logs' not in st.session_state:
+        st.session_state.logs = []
+        
     logs = []
 
     # 1. Download Data
@@ -91,42 +95,13 @@ def initialize_system():
             st.session_state.features = []
 
         logs.append("✅ Model loaded into memory.")
-    except Exception as e:
-        logs.append(f"❌ Model Load Error: {str(e)}")
-        st.session_state.logs = logs
-        return
-    # Success
-    st.session_state.logs = logs
-    st.session_state.system_ready = True
-        
-        # Handle Payload
-        if isinstance(payload, dict) and 'model' in payload:
-            st.session_state.model = payload['model']
-            raw_features = payload.get('feature_names')
-            
-            # Fix Feature Names
-            if raw_features is not None:
-                if hasattr(raw_features, 'tolist'):
-                    st.session_state.features = raw_features.tolist()
-                elif hasattr(raw_features, 'columns'):
-                    st.session_state.features = raw_features.columns.tolist()
-                else:
-                    st.session_state.features = list(raw_features)
-            else:
-                st.session_state.features = []
-        else:
-            st.session_state.model = payload
-            st.session_state.features = [] # Assuming no features if raw model
-            
-        logs.append("✅ Model loaded into memory.")
-
+    
     except Exception as e:
         logs.append(f"❌ Model Load Error: {str(e)}")
         st.session_state.logs = logs
         return
 
     # 4. Load Data
-       # ... inside initialize_system > 4. Load Data ...
     try:
         # Find JSON file recursively
         json_path = recursive_find_file(DATA_EXTRACT_DIR, ".json")
@@ -139,13 +114,10 @@ def initialize_system():
         logs.append(f"📊 Loading data from: {os.path.basename(json_path)}")
         
         # READ JSON
-        # Note: 'orient' depends on your JSON structure. 
-        # Common ones: 'records', 'split', 'index'. 
-        # If unsure, try without arguments first.
         try:
             st.session_state.player_data = pd.read_json(json_path)
         except ValueError:
-             # Fallback: sometimes JSONs are line-delimited (NDJSON)
+            # Fallback: sometimes JSONs are line-delimited (NDJSON)
             st.session_state.player_data = pd.read_json(json_path, lines=True)
             
         logs.append(f"✅ Data loaded: {len(st.session_state.player_data)} rows.")
@@ -155,8 +127,7 @@ def initialize_system():
         st.session_state.logs = logs
         return
 
-
-    # Success
+    # 5. Final Success
     st.session_state.logs = logs
     st.session_state.system_ready = True
 
@@ -203,44 +174,48 @@ else:
     # 1. Player Selection
     df = st.session_state.player_data
     
-    # Try to find player name column
-    possible_cols = [c for c in df.columns if c.lower() in ['player', 'batsman', 'batter', 'striker', 'player_name']]
-    player_col = possible_cols[0] if possible_cols else None
-    
-    if player_col:
-        players = sorted(df[player_col].astype(str).unique())
-        selected_player = st.selectbox("Select Player:", players)
+    if df is not None and not df.empty:
+        # Try to find player name column
+        possible_cols = [c for c in df.columns if c.lower() in ['player', 'batsman', 'batter', 'striker', 'player_name']]
+        player_col = possible_cols[0] if possible_cols else None
         
-        if selected_player:
-            # Show minimal stats
-            p_data = df[df[player_col] == selected_player]
-            st.write(f"**Matches Played:** {len(p_data)}")
+        if player_col:
+            players = sorted(df[player_col].astype(str).unique())
+            selected_player = st.selectbox("Select Player:", players)
             
-            # 2. Prediction Button
-            if st.button(f"Predict Next Score for {selected_player}"):
-                if st.session_state.model:
-                    # --- FEATURE PREPARATION (CRITICAL) ---
-                    # currently sending zeros just to prove model works
-                    # You need to replace this logic with your actual feature calculation!
-                    try:
-                        dummy_features = pd.DataFrame([0]*len(st.session_state.features), columns=st.session_state.features)
-                        prediction = st.session_state.model.predict(dummy_features)[0]
-                        
-                        st.markdown("### 🎯 Prediction Result")
-                        st.metric(label="Predicted Score", value=f"{int(prediction)} Runs")
-                    except Exception as e:
-                        st.error(f"Prediction Error: {e}")
-                else:
-                    st.error("Model object is missing.")
+            if selected_player:
+                # Show minimal stats
+                p_data = df[df[player_col] == selected_player]
+                st.write(f"**Matches Played:** {len(p_data)}")
+                
+                # 2. Prediction Button
+                if st.button(f"Predict Next Score for {selected_player}"):
+                    if st.session_state.model:
+                        # --- FEATURE PREPARATION (CRITICAL) ---
+                        try:
+                            # ⚠️ DUMMY DATA: Replace with actual feature calculation
+                            # Create a dataframe with 1 row and correct columns
+                            if st.session_state.features:
+                                dummy_features = pd.DataFrame([0]*len(st.session_state.features)).T
+                                dummy_features.columns = st.session_state.features
+                            else:
+                                # Fallback if no features were loaded
+                                dummy_features = pd.DataFrame([[0]]) 
+                                
+                            prediction = st.session_state.model.predict(dummy_features)[0]
+                            
+                            st.markdown("### 🎯 Prediction Result")
+                            st.metric(label="Predicted Score", value=f"{int(prediction)} Runs")
+                        except Exception as e:
+                            st.error(f"Prediction Error: {e}")
+                    else:
+                        st.error("Model object is missing.")
+        else:
+            st.error(f"Could not find a 'player' column in the JSON. Columns found: {list(df.columns)}")
     else:
-        st.error(f"Could not find a 'player' column in the CSV. Columns found: {list(df.columns)}")
+        st.error("Dataframe is empty or failed to load.")
         
     # Reset Button (for debugging)
     if st.button("Reset System"):
         st.session_state.clear()
         st.rerun()
-
-
-
-
-
