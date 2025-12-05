@@ -70,12 +70,29 @@ def initialize_system():
         st.session_state.logs.append(f"❌ Failed to load model: {e}")
 
     # 4. Load Player Data
-    try:
-        csv_path = os.path.join(DATA_DIR, [f for f in os.listdir(DATA_DIR) if f.endswith('.csv')][0])
-        st.session_state.player_data = pd.read_csv(csv_path)
-        st.session_state.logs.append("✅ Player data loaded.")
-    except Exception as e:
-        st.session_state.logs.append(f"❌ Failed to load player data: {e}")
+   import requests
+import zipfile
+import io
+import pandas as pd
+import os
+
+# 1. Define URL (Must use ?raw=true)
+url = "https://github.com/aksmamg014/Cricket_Form_Analyzer/blob/main/t20s.zip?raw=true"
+
+# 2. Fetch content
+r = requests.get(url)
+r.raise_for_status()
+
+# 3. Extract to a folder
+with zipfile.ZipFile(io.BytesIO(r.content)) as z:
+    z.extractall("t20s_data")
+
+# 4. Find and Read CSV
+# This looks inside the extracted folder to find the actual CSV file
+csv_files = [f for f in os.listdir("t20s_data") if f.endswith(".csv")]
+if csv_files:
+    df = pd.read_csv(f"t20s_data/{csv_files[0]}")
+    print(f"Loaded {len(df)} rows")
 
 # ==========================================
 # MAIN UI
@@ -132,3 +149,4 @@ else:
 if st.session_state.logs:
     with st.expander("Show Initialization Logs"):
         st.code("\n".join(st.session_state.logs))
+
