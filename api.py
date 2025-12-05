@@ -11,246 +11,199 @@ import io
 # ==========================================
 st.set_page_config(page_title="Cricket Player Score Predictor", page_icon="🏏", layout="wide")
 
-# GitHub URLs
+# GitHub URLs (Must end in ?raw=true)
 DATA_ZIP_URL = "https://github.com/aksmamg014/Cricket_Form_Analyzer/blob/main/t20s.zip?raw=true"
 MODEL_ZIP_URL = "https://github.com/aksmamg014/Cricket_Form_Analyzer/blob/main/models.zip?raw=true"
-MODEL_DIR = "models/rf_cricket_score"
-DATA_DIR = "t20s_data"
+
+# Directories for extraction
+MODEL_EXTRACT_DIR = "models_extracted"
+DATA_EXTRACT_DIR = "t20s_data_extracted"
 
 # ==========================================
-# SETUP FUNCTION
+# HELPER FUNCTIONS
+# ==========================================
+
+def recursive_find_file(directory, endswith):
+    """Helper to find a file recursively in a directory."""
+    for root, dirs, files in os.walk(directory):
+        for file in files:
+            if file.endswith(endswith):
+                return os.path.join(root, file)
+    return None
+
+def download_and_extract(url, target_dir, desc):
+    """Downloads and extracts zip if target_dir doesn't exist."""
+    if os.path.exists(target_dir) and len(os.listdir(target_dir)) > 0:
+        return True, f"✅ {desc} found locally."
+    
+    try:
+        response = requests.get(url, timeout=60)
+        response.raise_for_status()
+        with zipfile.ZipFile(io.BytesIO(response.content)) as z:
+            z.extractall(target_dir)
+        return True, f"✅ {desc} downloaded & extracted."
+    except Exception as e:
+        return False, f"❌ Failed to download {desc}: {str(e)}"
+
+# ==========================================
+# INITIALIZATION LOGIC
 # ==========================================
 
 def initialize_system():
     """
-    Called ONCE to download, extract, and load everything.
-    Uses session_state to store results.
+    Main setup function. Downloads files, loads model & data into session_state.
     """
-    st.session_state.logs = []
+    logs = []
     
-    # --- Helper to download and log ---
-    def download_and_extract(url, target_dir, desc):
-        if os.path.exists(target_dir) and len(os.listdir(target_dir)) > 0:
-            st.session_state.logs.append(f"✅ {desc} found locally.")
-            return True
-        try:
-            r = requests.get(url, timeout=60)
-            r.raise_for_status()
-            z = zipfile.ZipFile(io.BytesIO(r.content))
-            z.extractall(target_dir if desc == "Data" else ".")
-            st.session_state.logs.append(f"✅ {desc} downloaded.")
-            return True
-        except Exception as e:
-            st.session_state.logs.append(f"❌ Failed to download {desc}: {e}")
-            return False
-
-    # 1. Get Data
-    if not download_and_extract(DATA_ZIP_URL, DATA_DIR, "Data"):
+    # 1. Download Data
+    ok, msg = download_and_extract(DATA_ZIP_URL, DATA_EXTRACT_DIR, "Data")
+    logs.append(msg)
+    if not ok:
+        st.session_state.logs = logs
         return
 
-    # 2. Get Model
-    if not download_and_extract(MODEL_ZIP_URL, ".", "Model"):
+    # 2. Download Model
+    ok, msg = download_and_extract(MODEL_ZIP_URL, MODEL_EXTRACT_DIR, "Model")
+    logs.append(msg)
+    if not ok:
+        st.session_state.logs = logs
         return
-        
-    # 3. Load Model and Features
-   ef load_model_from_github():
-    """
-    Downloads 'models.zip' from GitHub, extracts it, and loads the model.
-    Returns: model, feature_names (list)
-    """
-    # 1. GitHub URL (Must use ?raw=true)
-    MODEL_ZIP_URL = "https://github.com/aksmamg014/Cricket_Form_Analyzer/blob/main/models.zip?raw=true"
-    EXTRACT_DIR = "models_extracted"
-    
-    status_msg = []
-    
+
+    # 3. Load Model
     try:
-        # 2. Download Zip
-        if not os.path.exists(EXTRACT_DIR):
-            status_msg.append("📥 Downloading model zip...")
-            response = requests.get(MODEL_ZIP_URL, timeout=60)
-            response.raise_for_status()
-            
-            # 3. Extract Zip
-            status_msg.append("📦 Extracting model...")
-            with zipfile.ZipFile(io.BytesIO(response.content)) as z:
-                z.extractall(EXTRACT_DIR)
-        else:
-            status_msg.append("✅ Model folder exists (Using cached).")
-
-        # 4. Find .joblib File Recursively
-        # This logic finds the file even if it's hidden in models_extracted/models/rf_score/...
-        model_path = None
-        for root, dirs, files in os.walk(EXTRACT_DIR):
-            for file in files:
-                # Look for file starting with 'rf_model' and ending with '.joblib'
-                if file.startswith("rf_model") and file.endswith(".joblib"):
-                    model_path = os.path.join(root, file)
-                    # If multiple exist, we want the latest one (by name usually implies date)
-                    # This loop naturally keeps finding files, so we can sort them later if needed
-                    # But taking the first valid one is usually enough if you clean your zip.
-        
+        model_path = recursive_find_file(MODEL_EXTRACT_DIR, ".joblib")
         if not model_path:
-            st.error("❌ No model file (rf_model*.joblib) found inside the zip!")
-            return None, None
+            logs.append("❌ No .joblib file found in model zip.")
+            st.session_state.logs = logs
+            return
 
-        # 5. Load Model using Joblib
-        status_msg.append(f"🚀 Loading: {os.path.basename(model_path)}")
+        logs.append(f"📦 Loading model from: {os.path.basename(model_path)}")
         payload = joblib.load(model_path)
         
-        # 6. Parse Payload
-        model = None
-        features = []
-        
+        # Handle Payload
         if isinstance(payload, dict) and 'model' in payload:
-            model = payload['model']
+            st.session_state.model = payload['model']
             raw_features = payload.get('feature_names')
             
-            # Fix feature format
+            # Fix Feature Names
             if raw_features is not None:
                 if hasattr(raw_features, 'tolist'):
-                    features = raw_features.tolist()
+                    st.session_state.features = raw_features.tolist()
                 elif hasattr(raw_features, 'columns'):
-                    features = raw_features.columns.tolist()
+                    st.session_state.features = raw_features.columns.tolist()
                 else:
-                    features = list(raw_features)
+                    st.session_state.features = list(raw_features)
+            else:
+                st.session_state.features = []
         else:
-            model = payload # Fallback if just the model object was saved
+            st.session_state.model = payload
+            st.session_state.features = [] # Assuming no features if raw model
             
-        return model, features
+        logs.append("✅ Model loaded into memory.")
 
     except Exception as e:
-        st.error(f"❌ Model Load Failed: {str(e)}")
-        return None, None
+        logs.append(f"❌ Model Load Error: {str(e)}")
+        st.session_state.logs = logs
+        return
 
-# --- How to use in your App ---
-# (Only run this when you need the model)
-
-if 'model' not in st.session_state:
-    model, features = load_model_from_github()
-    
-    if model:
-        st.session_state.model = model
-        st.session_state.features = features
-        st.success("Model loaded successfully!")
-    else:
-        st.stop() # Stop app if model fails
-
-    # 4. Load Player Data
-  def load_t20_data_from_github():
-    """
-    Downloads 't20s.zip' from GitHub, extracts it, and loads the CSV.
-    Returns: pd.DataFrame
-    """
-    # 1. GitHub URL (Must use ?raw=true)
-    DATA_ZIP_URL = "https://github.com/aksmamg014/Cricket_Form_Analyzer/blob/main/t20s.zip?raw=true"
-    EXTRACT_DIR = "t20s_data_extracted"
-    
+    # 4. Load Data
     try:
-        # 2. Download & Extract (Only if not already there)
-        if not os.path.exists(EXTRACT_DIR):
-            st.info("📥 Downloading T20 data...")
-            response = requests.get(DATA_ZIP_URL, timeout=60)
-            response.raise_for_status()
-            
-            with zipfile.ZipFile(io.BytesIO(response.content)) as z:
-                z.extractall(EXTRACT_DIR)
-        else:
-            # Optional: Check if folder is empty, if so, re-download
-            if not os.listdir(EXTRACT_DIR):
-                 st.warning("⚠️ Data folder empty, re-downloading...")
-                 # (You could add re-download logic here if needed)
-
-        # 3. Find the CSV File Recursively
-        # This finds the CSV even if it's inside t20s_data_extracted/t20s/data.csv
-        csv_path = None
-        for root, dirs, files in os.walk(EXTRACT_DIR):
-            for file in files:
-                if file.endswith(".csv"):
-                    csv_path = os.path.join(root, file)
-                    break # Found one!
-            if csv_path: break
-            
+        csv_path = recursive_find_file(DATA_EXTRACT_DIR, ".csv")
         if not csv_path:
-            st.error("❌ No CSV file found inside the zip!")
-            return None
+            logs.append("❌ No CSV file found in data zip.")
+            st.session_state.logs = logs
+            return
 
-        # 4. Load into Pandas
-        st.info(f"📊 Loading data from: {os.path.basename(csv_path)}")
-        
-        # Optimization: Use low_memory=False to prevent type warnings on large files
-        df = pd.read_csv(csv_path, low_memory=False)
-        
-        st.success(f"✅ Data Loaded: {len(df)} records found.")
-        return df
+        logs.append(f"📊 Loading data from: {os.path.basename(csv_path)}")
+        # Use low_memory=False for safety with large files
+        st.session_state.player_data = pd.read_csv(csv_path, low_memory=False)
+        logs.append(f"✅ Data loaded: {len(st.session_state.player_data)} rows.")
 
     except Exception as e:
-        st.error(f"❌ Data Load Failed: {str(e)}")
-        return None
+        logs.append(f"❌ Data Load Error: {str(e)}")
+        st.session_state.logs = logs
+        return
 
-# --- Usage in your App ---
-
-if 'player_data' not in st.session_state:
-    df = load_t20_data_from_github()
-    if df is not None:
-        st.session_state.player_data = df
-    else:
-        st.stop() # Stop if data fails
+    # Success
+    st.session_state.logs = logs
+    st.session_state.system_ready = True
 
 # ==========================================
-# MAIN UI
+# MAIN APP UI
 # ==========================================
 
 st.title("🏏 Cricket Player Score Predictor")
 st.markdown("---")
 
-# Initialize session state if it doesn't exist
-if 'model' not in st.session_state:
+# Initialize Session State Variables
+if 'system_ready' not in st.session_state:
+    st.session_state.system_ready = False
+    st.session_state.logs = []
     st.session_state.model = None
     st.session_state.player_data = None
-    st.session_state.features = None
-    st.session_state.logs = []
+    st.session_state.features = []
 
-# --- Section 1: Initialization ---
-if st.session_state.model is None:
+# --- VIEW 1: INITIALIZATION SCREEN ---
+if not st.session_state.system_ready:
     st.subheader("System Initialization")
-    st.warning("System is not ready. Please initialize to download models and data.")
+    st.info("Click the button below to download models and data from GitHub.")
     
     if st.button("🚀 Initialize System", type="primary"):
-        with st.spinner("Downloading and setting up... This may take a moment."):
+        with st.status("Initializing...", expanded=True) as status:
             initialize_system()
-        st.rerun()
+            # If successful, rerun to show main app
+            if st.session_state.system_ready:
+                status.update(label="System Ready!", state="complete", expanded=False)
+                st.rerun()
+            else:
+                status.update(label="Initialization Failed", state="error")
     
-    # Show logs if they exist
+    # Show logs
     if st.session_state.logs:
-        st.subheader("Logs")
-        st.code("\n".join(st.session_state.logs))
+        with st.expander("View Logs", expanded=True):
+            for log in st.session_state.logs:
+                st.write(log)
 
-# --- Section 2: Main App ---
+# --- VIEW 2: MAIN PREDICTION SCREEN ---
 else:
-    st.success("✅ System Ready")
+    st.success("✅ System is Ready")
     
-    # Find player column
-    player_col = [c for c in st.session_state.player_data.columns if c.lower() in ['player', 'batsman']][0]
-    players = sorted(st.session_state.player_data[player_col].astype(str).unique())
-
-    # Player Selection UI
-    selected_player = st.selectbox("Select Player", players)
+    # 1. Player Selection
+    df = st.session_state.player_data
     
-    if selected_player:
-        # Prediction Logic
-        if st.button(f"Predict Score for {selected_player}"):
-            # THIS IS A DUMMY FEATURE PREPARATION
-            # YOU MUST REPLACE THIS with your actual logic to calculate features
-            # for the selected player from their historical data.
-            dummy_features = pd.DataFrame([0]*len(st.session_state.features), index=st.session_state.features).T
+    # Try to find player name column
+    possible_cols = [c for c in df.columns if c.lower() in ['player', 'batsman', 'batter', 'striker', 'player_name']]
+    player_col = possible_cols[0] if possible_cols else None
+    
+    if player_col:
+        players = sorted(df[player_col].astype(str).unique())
+        selected_player = st.selectbox("Select Player:", players)
+        
+        if selected_player:
+            # Show minimal stats
+            p_data = df[df[player_col] == selected_player]
+            st.write(f"**Matches Played:** {len(p_data)}")
             
-            prediction = st.session_state.model.predict(dummy_features)[0]
-            st.metric(label="Predicted Next Match Score", value=f"{int(prediction)} Runs")
-
-# --- Section 3: Debug Log Expander (at the bottom) ---
-if st.session_state.logs:
-    with st.expander("Show Initialization Logs"):
-        st.code("\n".join(st.session_state.logs))
-
-
+            # 2. Prediction Button
+            if st.button(f"Predict Next Score for {selected_player}"):
+                if st.session_state.model:
+                    # --- FEATURE PREPARATION (CRITICAL) ---
+                    # currently sending zeros just to prove model works
+                    # You need to replace this logic with your actual feature calculation!
+                    try:
+                        dummy_features = pd.DataFrame([0]*len(st.session_state.features), columns=st.session_state.features)
+                        prediction = st.session_state.model.predict(dummy_features)[0]
+                        
+                        st.markdown("### 🎯 Prediction Result")
+                        st.metric(label="Predicted Score", value=f"{int(prediction)} Runs")
+                    except Exception as e:
+                        st.error(f"Prediction Error: {e}")
+                else:
+                    st.error("Model object is missing.")
+    else:
+        st.error(f"Could not find a 'player' column in the CSV. Columns found: {list(df.columns)}")
+        
+    # Reset Button (for debugging)
+    if st.button("Reset System"):
+        st.session_state.clear()
+        st.rerun()
